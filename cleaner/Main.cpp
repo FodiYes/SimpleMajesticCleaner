@@ -19,11 +19,21 @@ struct CleanResult {
     std::string reason;
 };
 
-std::map<std::string, std::vector<CleanResult>> cleanResults;
+void setConsoleColor(int color) {
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), color);
+}
+
+void resetConsoleColor() {
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+}
 
 void logMessage(const std::string& message) {
-    std::cout << "[LOG CLEANER] " << message << std::endl;
+    setConsoleColor(7);
+    std::cout << "[*] " << message << std::endl;
+    resetConsoleColor();
 }
+
+std::map<std::string, std::vector<CleanResult>> cleanResults;
 
 void addResult(const std::string& directory, const std::string& file, bool success, const std::string& reason = "") {
     CleanResult result;
@@ -472,10 +482,6 @@ void restartProgs() {
     runRestartCmd("Очистка кэша DNS", "ipconfig /flushdns >NUL 2>NUL");
 
     runRestartCmd("Перезапуск всех устройств (NVIDIA и др.)", "pnputil /restart-device * >NUL 2>NUL");
-
-    runRestartCmd("Завершение explorer.exe", "taskkill /F /IM explorer.exe >NUL 2>NUL");
-    runRestartCmd("Запуск explorer", "start explorer");
-
     logMessage("=== Перезапуск завершён ===");
 }
 
@@ -510,61 +516,150 @@ void cleanShellBags() {
     logMessage("ShellBags полностью очищены");
 }
 
+void drawProgressBar(int progress, int total, int width = 50) {
+    float percentage = static_cast<float>(progress) / total;
+    int pos = static_cast<int>(width * percentage);
+
+    std::cout << "[";
+    for (int i = 0; i < width; ++i) {
+        if (i < pos) {
+            setConsoleColor(10); //Зеленый 
+            std::cout << "=";
+        }
+        else {
+            setConsoleColor(8); //Серый
+            std::cout << " ";
+        }
+    }
+    resetConsoleColor();
+    std::cout << "] " << int(percentage * 100.0) << " %\r";
+    std::cout.flush();
+}
+
+void printHeader(const std::string& title) {
+    setConsoleColor(11); // Голубой
+    std::cout << "\n=== " << title << " ===" << std::endl;
+    resetConsoleColor();
+}
+
+void printSuccess(const std::string& message) {
+    setConsoleColor(10); // Зеленый
+    std::cout << "[+] " << message << std::endl;
+    resetConsoleColor();
+}
+
+void printWarning(const std::string& message) {
+    setConsoleColor(14); // Желтый
+    std::cout << "[!] " << message << std::endl;
+    resetConsoleColor();
+}
+
+void printError(const std::string& message) {
+    setConsoleColor(12); // Красный
+    std::cout << "[-] " << message << std::endl;
+    resetConsoleColor();
+}
+
 int main() {
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
     setlocale(LC_ALL, "Russian");
-    SetConsoleOutputCP(CP_UTF8);
-    SetConsoleOutputCP(866);
+    system("cls");
 
-    std::string message = "WLG - Клинер перед проверкой";
-    int boxWidth = 58;
-
-    printCenteredBox(message, boxWidth);
+    setConsoleColor(14);
+    std::cout << "==================================================\n";
+    std::cout << " SIMPLE MAJESTIC CLEANER - ПОДГОТОВКА К ПРОВЕРКЕ\n";
+    std::cout << "==================================================\n\n";
+    resetConsoleColor();
 
     if (!isRunAsAdmin()) {
-        std::cout << "ОШИБКА: Программа требует запуска с правами администратора!" << std::endl;
-        std::cout << "Пожалуйста, перезапустите программу от имени администратора." << std::endl;
+        printError("ОШИБКА: Требуются права администратора!");
+        std::cout << "Запустите программу от имени администратора.\n\n";
         system("pause");
         return 1;
     }
 
-    std::cout << "Программа запущена с правами администратора." << std::endl;
-    std::cout << "ВНИМАНИЕ: Эта программа удалит все системные логи и временные файлы!" << std::endl;
-    std::cout << "Продолжить? (y/n): ";
+    printSuccess("Статус: Программа запущена с правами администратора");
+    printWarning("ВНИМАНИЕ: Будет выполнена очистка системных логов и временных файлов!");
+    printWarning("Рекомендуется закрыть все игры и программы перед продолжением.");
+	printError("ПОСЛЕ ОЧИСТКИ ОБЯЗАТЕЛЬНО НУЖНО ПЕРЕЗАПУСТИТЬ ПРОЦЕСС explorer.exe!");
 
+    std::cout << "\nПродолжить? (y/n): ";
     char choice;
     std::cin >> choice;
 
     if (choice != 'y' && choice != 'Y') {
-        std::cout << "Операция отменена пользователем." << std::endl;
+        printWarning("Очистка отменена пользователем.");
         system("pause");
         return 0;
     }
 
-    std::cout << "Начинаем очистку системы..." << std::endl;
+    system("cls");
 
-    cleanEventLogs();
-    cleanWMILogs();
-    cleanDirectXLogs();
-    cleanNvidiaLogs();
-    cleanWindowsUpdateLogs();
-    cleanInstallerLogs();
-    cleanTempFiles();
-    cleanProgramLogs();
-    cleanDNSCache();
-    cleanAntiCheatLogs();
-    cleanAltVLogs();
-    CleanCheatsFolders();
-    cleanShellBags();
-    restartProgs();
+    const std::vector<std::string> operations = {
+        "Очистка журналов событий",
+        "Очистка логов WMI",
+        "Очистка логов DirectX",
+        "Очистка логов NVIDIA",
+        "Очистка логов обновлений",
+        "Очистка логов установщика",
+        "Очистка временных файлов",
+        "Очистка программных логов",
+        "Очистка кэша DNS",
+        "Очистка логов античитов",
+        "Очистка логов ALT:V",
+        "Очистка папок читов",
+        "Очистка ShellBags",
+        "Перезапуск процессов",
+        "Сохранение отчета"
+    };
 
+    setConsoleColor(14);
+    std::cout << "==================================================\n";
+    std::cout << "    ВЫПОЛНЕНИЕ ОЧИСТКИ СИСТЕМЫ\n";
+    std::cout << "==================================================\n\n";
+    resetConsoleColor();
 
-    saveResultsToFile();
+    for (size_t i = 0; i < operations.size(); ++i) {
+        setConsoleColor(11); // Голубой цвет
+        std::cout << "Шаг " << i + 1 << " из " << operations.size() << ": ";
+        resetConsoleColor();
+        std::cout << operations[i] << "... ";
 
-    std::cout << "\nОчистка завершена!" << std::endl;
-    std::cout << "Все системные логи и временные файлы были удалены." << std::endl;
-    std::cout << "Отчет о проделанной работе сохранен в .dat файл." << std::endl;
+        switch (i) {
+        case 0: cleanEventLogs(); break;
+        case 1: cleanWMILogs(); break;
+        case 2: cleanDirectXLogs(); break;
+        case 3: cleanNvidiaLogs(); break;
+        case 4: cleanWindowsUpdateLogs(); break;
+        case 5: cleanInstallerLogs(); break;
+        case 6: cleanTempFiles(); break;
+        case 7: cleanProgramLogs(); break;
+        case 8: cleanDNSCache(); break;
+        case 9: cleanAntiCheatLogs(); break;
+        case 10: cleanAltVLogs(); break;
+        case 11: CleanCheatsFolders(); break;
+        case 12: cleanShellBags(); break;
+        case 13: restartProgs(); break;
+        case 14: saveResultsToFile(); break;
+        }
+
+        printSuccess("Готово");
+    }
+
+    setConsoleColor(10);
+    std::cout << "\n\n==================================================\n";
+    std::cout << "    ОЧИСТКА УСПЕШНО ЗАВЕРШЕНА!\n";
+    std::cout << "==================================================\n\n";
+    resetConsoleColor();
+
+    std::cout << "Все операции выполнены. Результаты сохранены в отчет.\n";
+    std::cout << "Теперь вы можете безопасно проходить проверку на сервере.\n\n";
+	
+    setConsoleColor(12);
+    std::cout << "Перезапустите процесс explorer.exe во избежание ошибок.\n\n";
+	resetConsoleColor();
+
     system("pause");
 
     return 0;
