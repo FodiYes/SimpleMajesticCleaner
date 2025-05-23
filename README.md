@@ -1,0 +1,2 @@
+# SimpleMajesticCleaner
+Simple majestic cleaner
