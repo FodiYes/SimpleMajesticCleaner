@@ -90,6 +90,24 @@ std::string getKnownFolderPath(int csidl) {
     return "";
 }
 
+void deleteDirectory(const std::string& directory) {
+    try {
+        if (fs::exists(directory)) {
+            std::error_code ec;
+            fs::remove_all(directory, ec);
+            if (ec) {
+                logMessage("Ошибка при удалении директории " + directory + ": " + ec.message());
+            }
+            else {
+                logMessage("Удалена директория: " + directory);
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        logMessage("Исключение при удалении директории " + directory + ": " + e.what());
+    }
+}
+
 void cleanDirectory(const std::string& directory, bool recursive = true) {
     try {
         if (!fs::exists(directory)) {
@@ -212,6 +230,11 @@ void cleanTempFiles() {
     for (const auto& path : tempPaths) {
         cleanDirectory(path, true);
     }
+
+    std::string prefetchPath = getKnownFolderPath(CSIDL_WINDOWS) + "\\Prefetch\\";
+    cleanDirectory(prefetchPath, true);
+    logMessage("Очищена папка Prefetch: " + prefetchPath);
+
 }
 
 void cleanWindowsUpdateLogs() {
@@ -486,6 +509,18 @@ void restartProgs() {
 }
 
 void CleanCheatsFolders() {
+
+
+    std::vector<std::string> CheatsPaths = {
+         getKnownFolderPath(CSIDL_APPDATA) + "\\ret9_fun\\",
+
+
+    };
+
+    for (const auto& path : CheatsPaths) {
+        cleanDirectory(path, true);
+        deleteDirectory(path);
+    };
 
     runRestartCmd("удаление папок nightfall", "rmdir /s /q \"C:\\Scripts\" \"C:\\Temp\"");
     /*
