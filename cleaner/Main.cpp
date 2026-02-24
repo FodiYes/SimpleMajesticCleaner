@@ -1,4 +1,5 @@
 ﻿#define _CRT_SECURE_NO_WARNINGS
+#include <functional>
 #include <locale.h>
 #include <iostream>
 #include <string>
@@ -159,20 +160,27 @@ void cleanDirectory(const std::string& directory, bool recursive = true) {
     }
 }
 
-void cleanEventLogs() {
-    logMessage("Очистка журналов событий Windows...");
+//void cleanEventLogs() {
+//    logMessage("Очистка журналов событий Windows...");
+//
+//    const char* eventLogs[] = {
+//        "Application", "System", "Security", "Setup",
+//        "HardwareEvents", "Internet Explorer", "Key Management Service",
+//        "Windows PowerShell"
+//    };
+//
+//    for (const auto& logName : eventLogs) {
+//        std::string command = "wevtutil cl \"" + std::string(logName) + "\" 2>NUL";
+//        system(command.c_str());
+//        logMessage("Журнал " + std::string(logName) + " очищен");
+//    }
+//}
 
-    const char* eventLogs[] = {
-        "Application", "System", "Security", "Setup",
-        "HardwareEvents", "Internet Explorer", "Key Management Service",
-        "Windows PowerShell"
-    };
-
-    for (const auto& logName : eventLogs) {
-        std::string command = "wevtutil cl \"" + std::string(logName) + "\" 2>NUL";
-        system(command.c_str());
-        logMessage("Журнал " + std::string(logName) + " очищен");
-    }
+void cleanAllEventLogs() {
+    logMessage("Очистка абсолютно всех журналов событий Windows...");
+    // Команда for /F перебирает все журналы через wevtutil el и сразу их очищает (cl)
+    system("FOR /F \"tokens=*\" %1 IN ('wevtutil.exe el') DO wevtutil.exe cl \"%1\" >NUL 2>NUL");
+    logMessage("Все системные журналы очищены.");
 }
 
 void cleanWMILogs() {
@@ -257,9 +265,34 @@ void cleanWindowsUpdateLogs() {
 
 void cleanInstallerLogs() {
     logMessage("Очистка логов установщика Windows...");
-    cleanDirectory(getKnownFolderPath(CSIDL_WINDOWS) + "\\Logs\\CBS\\");
-    cleanDirectory(getKnownFolderPath(CSIDL_WINDOWS) + "\\Logs\\DISM\\");
-    cleanDirectory(getKnownFolderPath(CSIDL_WINDOWS) + "\\Inf\\");
+
+    std::string winPath = getKnownFolderPath(CSIDL_WINDOWS);
+
+    cleanDirectory(winPath + "\\Logs\\CBS\\", true);
+    cleanDirectory(winPath + "\\Logs\\DISM\\", true);
+
+    std::vector<std::string> infLogs = {
+        "setupapi.dev.log",
+        "setupapi.setup.log",
+        "setupapi.offline.log",
+        "setupapi.upgrade.log"
+    };
+
+    std::string infPath = winPath + "\\Inf\\";
+
+    for (const auto& logFile : infLogs) {
+        std::string fullPath = infPath + logFile;
+        try {
+            if (fs::exists(fullPath)) {
+                fs::remove(fullPath);
+                addResult(infPath, logFile, true);
+                logMessage("Удален лог драйверов: " + logFile);
+            }
+        }
+        catch (const std::exception& e) {
+            addResult(infPath, logFile, false, e.what());
+        }
+    }
 }
 
 void cleanProgramLogs() {
@@ -278,9 +311,18 @@ void cleanProgramLogs() {
     }
 }
 
-void cleanDNSCache() {
-    logMessage("Очистка кэша DNS...");
+//void cleanDNSCache() {
+//    logMessage("Очистка кэша DNS...");
+//    system("ipconfig /flushdns >NUL 2>NUL");
+//}
+
+void cleanNetworkCaches() {
+    logMessage("Глубокая очистка сетевых кэшей (DNS, ARP, Winsock)...");
     system("ipconfig /flushdns >NUL 2>NUL");
+    system("arp -d * >NUL 2>NUL");         
+    system("nbtstat -R >NUL 2>NUL");       
+    system("nbtstat -RR >NUL 2>NUL");
+    system("netsh winsock reset >NUL 2>NUL"); 
 }
 
 void cleanAntiCheatLogs() {
@@ -400,6 +442,33 @@ void cleanAntiCheatLogs() {
             logMessage("Очищены логи Xigncode3");
         }
     }
+}
+
+void selfDelete() {
+    TCHAR szModuleName[MAX_PATH];
+    TCHAR szCmd[2 * MAX_PATH];
+    STARTUPINFO si = { 0 };
+    PROCESS_INFORMATION pi = { 0 };
+
+    GetModuleFileName(NULL, szModuleName, MAX_PATH);
+
+    wsprintf(szCmd, L"cmd.exe /C choice /C Y /N /D Y /T 3 & Del \"%s\"", szModuleName);
+
+    si.cb = sizeof(si);
+    if (CreateProcess(NULL, szCmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+}
+
+void finalCleanup() {
+    logMessage("=== Запуск финальной очистки следов ===");
+
+    logMessage("Очистка ключей реестра UserAssist (история запусков)...");
+    system("reg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\UserAssist\" /f >NUL 2>NUL");
+
+    logMessage("Инициализация самоудаления...");
+    selfDelete();
 }
 
 void cleanAltVLogs() {
@@ -595,6 +664,92 @@ void printError(const std::string& message) {
     resetConsoleColor();
 }
 
+void cleanDeepSystemTraces() {
+    logMessage("Удаление журнала файловой системы (USN Journal)...");
+    system("fsutil usn deletejournal /d /n c: >NUL 2>NUL");
+
+    logMessage("Удаление теневых копий томов (VSS)...");
+    system("vssadmin delete shadows /all /quiet >NUL 2>NUL");
+}
+
+void cleanRecentAndJumpLists() {
+    logMessage("Очистка недавних файлов и Jump Lists...");
+
+    std::string appData = getKnownFolderPath(CSIDL_APPDATA);
+
+    cleanDirectory(appData + "\\Microsoft\\Windows\\Recent", true);
+    cleanDirectory(appData + "\\Microsoft\\Windows\\Recent\\AutomaticDestinations", true);
+    cleanDirectory(appData + "\\Microsoft\\Windows\\Recent\\CustomDestinations", true);
+}
+
+void cleanExplorerCaches() {
+    logMessage("Очистка кэша иконок и эскизов (Explorer Caches)...");
+    std::string localAppData = getKnownFolderPath(CSIDL_LOCAL_APPDATA);
+
+    cleanDirectory(localAppData + "\\Microsoft\\Windows\\Explorer", false);
+}
+
+void cleanPowerShellHistory() {
+    logMessage("Очистка истории команд PowerShell...");
+    std::string appData = getKnownFolderPath(CSIDL_APPDATA);
+    std::string psHistoryPath = appData + "\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt";
+
+    try {
+        if (fs::exists(psHistoryPath)) {
+            fs::remove(psHistoryPath);
+        }
+    }
+    catch (...) {}
+}
+
+void cleanRegistryExecutionTraces() {
+    logMessage("Очистка следов запуска программ (MUICache, BAM)...");
+
+    system("reg delete \"HKCU\\Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\Shell\\MuiCache\" /f >NUL 2>NUL");
+
+    system("reg delete \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\bam\\State\\UserSettings\" /f >NUL 2>NUL");
+    system("reg delete \"HKLM\\SYSTEM\\CurrentControlSet\\Services\\dam\\UserSettings\" /f >NUL 2>NUL");
+}
+
+void cleanWindowsTelemetry() {
+    logMessage("Очистка логов телеметрии и диагностики Windows...");
+
+    system("net stop DiagTrack /y >NUL 2>NUL");
+
+    cleanDirectory("C:\\ProgramData\\Microsoft\\Diagnosis\\ETLLogs", true);
+    cleanDirectory("C:\\ProgramData\\Microsoft\\DiagnosticLogCSP", true);
+
+    system("net start DiagTrack >NUL 2>NUL");
+}
+
+void cleanMemoryDumps() {
+    logMessage("Очистка дампов памяти (Minidump и MEMORY.DMP)...");
+
+    system("del /f /q %SystemRoot%\\MEMORY.DMP >NUL 2>NUL");
+
+    cleanDirectory("C:\\Windows\\Minidump", true);
+}
+
+void cleanActivityHistory() {
+    logMessage("Очистка истории активности Windows (Timeline)...");
+
+    std::string localAppData = getKnownFolderPath(CSIDL_LOCAL_APPDATA);
+    cleanDirectory(localAppData + "\\ConnectedDevicesPlatform", true);
+}
+
+void cleanDeliveryOptimization() {
+    logMessage("Очистка кэша оптимизации доставки Windows Update...");
+
+    system("net stop dosvc /y >NUL 2>NUL");
+    cleanDirectory("C:\\Windows\\SoftwareDistribution\\DeliveryOptimization", true);
+    system("net start dosvc >NUL 2>NUL");
+}
+
+struct CleanTask {
+    std::string name;
+    std::function<void()> func;
+};
+
 int main() {
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
@@ -617,7 +772,7 @@ int main() {
     printSuccess("Статус: Программа запущена с правами администратора");
     printWarning("ВНИМАНИЕ: Будет выполнена очистка системных логов и временных файлов!");
     printWarning("Рекомендуется закрыть все игры и программы перед продолжением.");
-	printError("ПОСЛЕ ОЧИСТКИ ОБЯЗАТЕЛЬНО НУЖНО ПЕРЕЗАПУСТИТЬ ПРОЦЕСС explorer.exe!");
+    printError("ПОСЛЕ ОЧИСТКИ ОБЯЗАТЕЛЬНО НУЖНО ПЕРЕЗАПУСТИТЬ ПРОЦЕСС explorer.exe!");
 
     std::cout << "\nПродолжить? (y/n): ";
     char choice;
@@ -631,22 +786,31 @@ int main() {
 
     system("cls");
 
-    const std::vector<std::string> operations = {
-        "Очистка журналов событий",
-        "Очистка логов WMI",
-        "Очистка логов DirectX",
-        "Очистка логов NVIDIA",
-        "Очистка логов обновлений",
-        "Очистка логов установщика",
-        "Очистка временных файлов",
-        "Очистка программных логов",
-        "Очистка кэша DNS",
-        "Очистка логов античитов",
-        "Очистка логов ALT:V",
-        "Очистка папок читов",
-        "Очистка ShellBags",
-        "Перезапуск процессов",
-        "Сохранение отчета"
+    std::vector<CleanTask> tasks = {
+        {"Очистка всех журналов событий", cleanAllEventLogs},
+        {"Очистка логов WMI", cleanWMILogs},
+        {"Очистка логов DirectX", cleanDirectXLogs},
+        {"Очистка логов NVIDIA", cleanNvidiaLogs},
+        {"Очистка логов обновлений", cleanWindowsUpdateLogs},
+        {"Очистка логов установщика", cleanInstallerLogs},
+        {"Очистка временных файлов", cleanTempFiles},
+        {"Очистка программных логов", cleanProgramLogs},
+        {"Глубокая очистка сети (DNS/ARP/Winsock)", cleanNetworkCaches},
+        {"Очистка логов античитов", cleanAntiCheatLogs},
+        {"Очистка логов ALT:V", cleanAltVLogs},
+        {"Очистка папок читов", CleanCheatsFolders},
+        {"Очистка ShellBags", cleanShellBags},
+        {"Очистка USN Journal и теневых копий", cleanDeepSystemTraces},
+        {"Очистка недавних файлов (Recent/Jump Lists)", cleanRecentAndJumpLists},
+        {"Очистка кэша Explorer (Icon/Thumbnails)", cleanExplorerCaches},
+        {"Очистка истории PowerShell", cleanPowerShellHistory},
+        {"Очистка следов запуска (MUICache/BAM)", cleanRegistryExecutionTraces},
+        {"Очистка логов телеметрии", cleanWindowsTelemetry},
+        {"Очистка дампов памяти (BSOD)", cleanMemoryDumps},
+        {"Очистка истории активности (Timeline)", cleanActivityHistory},
+        {"Очистка оптимизации доставки (Updates)", cleanDeliveryOptimization},
+        {"Перезапуск процессов и служб", restartProgs},
+        //{"Сохранение логов работы в файл", saveResultsToFile}
     };
 
     setConsoleColor(14);
@@ -655,29 +819,13 @@ int main() {
     std::cout << "==================================================\n\n";
     resetConsoleColor();
 
-    for (size_t i = 0; i < operations.size(); ++i) {
-        setConsoleColor(11); // Голубой цвет
-        std::cout << "Шаг " << i + 1 << " из " << operations.size() << ": ";
+    for (size_t i = 0; i < tasks.size(); ++i) {
+        setConsoleColor(11);
+        std::cout << "Шаг " << i + 1 << " из " << tasks.size() << ": ";
         resetConsoleColor();
-        std::cout << operations[i] << "... ";
+        std::cout << tasks[i].name << "... ";
 
-        switch (i) {
-        case 0: cleanEventLogs(); break;
-        case 1: cleanWMILogs(); break;
-        case 2: cleanDirectXLogs(); break;
-        case 3: cleanNvidiaLogs(); break;
-        case 4: cleanWindowsUpdateLogs(); break;
-        case 5: cleanInstallerLogs(); break;
-        case 6: cleanTempFiles(); break;
-        case 7: cleanProgramLogs(); break;
-        case 8: cleanDNSCache(); break;
-        case 9: cleanAntiCheatLogs(); break;
-        case 10: cleanAltVLogs(); break;
-        case 11: CleanCheatsFolders(); break;
-        case 12: cleanShellBags(); break;
-        case 13: restartProgs(); break;
-        case 14: saveResultsToFile(); break;
-        }
+        tasks[i].func();
 
         printSuccess("Готово");
     }
@@ -688,14 +836,17 @@ int main() {
     std::cout << "==================================================\n\n";
     resetConsoleColor();
 
-    std::cout << "Все операции выполнены. Результаты сохранены в отчет.\n";
+    std::cout << "Все операции выполнены.\n";
     std::cout << "Теперь вы можете безопасно проходить проверку на сервере.\n\n";
-	
+
     setConsoleColor(12);
-    std::cout << "Перезапустите процесс explorer.exe во избежание ошибок.\n\n";
-	resetConsoleColor();
+    std::cout << "Перезапустите процесс explorer.exe во избежание ошибок.\n";
+    std::cout << "Программа удалит себя через несколько секунд после закрытия этого окна.\n\n";
+    resetConsoleColor();
 
     system("pause");
+
+    finalCleanup();
 
     return 0;
 }
